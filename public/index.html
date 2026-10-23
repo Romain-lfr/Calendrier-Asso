@@ -6,7 +6,7 @@
   <title>Calendrier Asso</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
-    input, textarea, button { display: block; width: 100%; margin: .4rem 0; padding: .5rem; box-sizing: border-box; }
+    input, textarea, select, button { display: block; width: 100%; margin: .4rem 0; padding: .5rem; box-sizing: border-box; }
     button { cursor: pointer; }
     #msg { color: #b00; min-height: 1.4em; }
     .pending { border: 1px solid #ccc; padding: .5rem; margin: .5rem 0; }
@@ -23,11 +23,22 @@
     <input id="l-pass" type="password" placeholder="Mot de passe">
     <button onclick="login()">Se connecter</button>
 
-    <h2>Inscrire mon association</h2>
-    <input id="r-name" placeholder="Nom de l'association">
-    <textarea id="r-desc" placeholder="Description"></textarea>
-    <input id="r-contact" placeholder="Contact">
-    <input id="r-email" type="email" placeholder="E-mail">
+    <h2>Inscription</h2>
+    <select id="r-mode" onchange="toggleMode()">
+      <option value="join">Rejoindre une association existante</option>
+      <option value="create">Créer une nouvelle association</option>
+    </select>
+
+    <div id="box-join">
+      <select id="r-asso"></select>
+    </div>
+    <div id="box-create" hidden>
+      <input id="r-name" placeholder="Nom de l'association">
+      <textarea id="r-desc" placeholder="Description"></textarea>
+      <input id="r-contact" placeholder="Contact">
+    </div>
+
+    <input id="r-email" type="email" placeholder="Ton e-mail">
     <input id="r-pass" type="password" placeholder="Mot de passe (8 caractères min.)">
     <button onclick="register()">S'inscrire</button>
   </section>
@@ -35,9 +46,15 @@
   <section id="app" hidden>
     <p>Connecté en tant que <strong id="role"></strong>.
       <a href="#" onclick="logout()">Déconnexion</a></p>
+    <p><a href="/calendar.html">Ouvrir le calendrier</a></p>
+
     <div id="admin" hidden>
-      <h2>Inscriptions en attente</h2>
-      <div id="pending"></div>
+      <h2>Associations en attente</h2>
+      <div id="pending-assos"></div>
+    </div>
+    <div id="moderator" hidden>
+      <h2>Personnes qui veulent rejoindre mon association</h2>
+      <div id="pending-users"></div>
     </div>
   </section>
 
@@ -56,11 +73,26 @@
       return data;
     }
 
+    function toggleMode() {
+      const create = $('r-mode').value === 'create';
+      $('box-create').hidden = !create;
+      $('box-join').hidden = create;
+    }
+
+    async function loadAssos() {
+      const list = await api('/api/public/associations');
+      $('r-asso').innerHTML = '';
+      if (!list.length) $('r-asso').append(new Option('Aucune association pour le moment', ''));
+      list.forEach((a) => $('r-asso').append(new Option(a.name, a.id)));
+    }
+
     async function register() {
       try {
         const d = await api('/api/register', {
-          associationName: $('r-name').value, description: $('r-desc').value,
-          contact: $('r-contact').value, email: $('r-email').value, password: $('r-pass').value,
+          mode: $('r-mode').value,
+          associationId: $('r-asso').value,
+          associationName: $('r-name').value, description: $('r-desc').value, contact: $('r-contact').value,
+          email: $('r-email').value, password: $('r-pass').value,
         });
         say(d.message);
       } catch (e) { say(e.message); }
@@ -75,27 +107,38 @@
 
     async function logout() { await api('/api/logout', {}); location.reload(); }
 
-    async function decide(id, action) {
-      await api(`/api/admin/associations/${id}/${action}`, {});
-      loadPending();
-    }
-
-    async function loadPending() {
-      const list = await api('/api/admin/pending');
-      $('pending').innerHTML = list.length ? '' : '<p>Aucune inscription en attente.</p>';
-      list.forEach((a) => {
+    // Affiche une liste avec boutons Valider / Refuser
+    function renderList(container, list, label, onDecide) {
+      container.innerHTML = list.length ? '' : '<p>Rien en attente.</p>';
+      list.forEach((item) => {
         const div = document.createElement('div');
         div.className = 'pending';
         const title = document.createElement('strong');
-        title.textContent = `${a.name} (${a.email})`;
+        title.textContent = label(item);
         const ok = document.createElement('button');
         ok.textContent = 'Valider';
-        ok.onclick = () => decide(a.id, 'approve');
+        ok.onclick = () => onDecide(item.id, 'approve');
         const no = document.createElement('button');
         no.textContent = 'Refuser';
-        no.onclick = () => decide(a.id, 'reject');
+        no.onclick = () => onDecide(item.id, 'reject');
         div.append(title, document.createElement('br'), ok, no);
-        $('pending').append(div);
+        container.append(div);
+      });
+    }
+
+    async function loadPendingAssos() {
+      const list = await api('/api/admin/pending');
+      renderList($('pending-assos'), list, (a) => `${a.name} (${a.email})`, async (id, action) => {
+        await api(`/api/admin/associations/${id}/${action}`, {});
+        loadPendingAssos();
+      });
+    }
+
+    async function loadPendingUsers() {
+      const list = await api('/api/moderator/pending');
+      renderList($('pending-users'), list, (u) => u.email, async (id, action) => {
+        await api(`/api/moderator/users/${id}/${action}`, {});
+        loadPendingUsers();
       });
     }
 
@@ -103,10 +146,13 @@
       try {
         const me = await api('/api/me');
         $('auth').hidden = true; $('app').hidden = false;
-        $('role').textContent = me.role;
-        if (me.role === 'admin') { $('admin').hidden = false; loadPending(); }
+        $('role').textContent = { admin: 'admin du groupe', moderator: "modérateur d'asso", member: 'membre' }[me.role];
+        if (me.role === 'admin') { $('admin').hidden = false; loadPendingAssos(); }
+        if (me.role === 'moderator') { $('moderator').hidden = false; loadPendingUsers(); }
       } catch { /* pas connecté */ }
     }
+
+    loadAssos();
     show();
   </script>
 </body>

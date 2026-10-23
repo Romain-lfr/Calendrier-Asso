@@ -7,7 +7,8 @@
         "start": "node src/server.js",
         "dev": "node --watch src/server.js",
         "db:init": "node db/init.js",
-        "admin": "node db/create-admin.js"
+        "admin": "node db/create-admin.js",
+        "db:reset": "node db/init.js --reset"
     },
     "engines": { "node": ">=20" },
     "dependencies": {
