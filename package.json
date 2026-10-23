@@ -1,0 +1,22 @@
+{
+    "name": "calendrier-asso",
+    "version": "0.1.0",
+    "private": true,
+    "main": "src/server.js",
+    "scripts": {
+        "start": "node src/server.js",
+        "dev": "node --watch src/server.js",
+        "db:init": "node db/init.js",
+        "admin": "node db/create-admin.js"
+    },
+    "engines": { "node": ">=20" },
+    "dependencies": {
+        "bcryptjs": "^2.4.3",
+        "connect-pg-simple": "^10.0.0",
+        "dotenv": "^16.4.5",
+        "express": "^4.21.0",
+        "express-session": "^1.18.0",
+        "googleapis": "^144.0.0",
+        "pg": "^8.13.0"
+    }
+}

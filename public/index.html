@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calendrier Asso</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+    input, textarea, button { display: block; width: 100%; margin: .4rem 0; padding: .5rem; box-sizing: border-box; }
+    button { cursor: pointer; }
+    #msg { color: #b00; min-height: 1.4em; }
+    .pending { border: 1px solid #ccc; padding: .5rem; margin: .5rem 0; }
+    .pending button { display: inline-block; width: auto; }
+  </style>
+</head>
+<body>
+  <h1>Calendrier Asso</h1>
+  <p id="msg"></p>
+
+  <section id="auth">
+    <h2>Connexion</h2>
+    <input id="l-email" type="email" placeholder="E-mail">
+    <input id="l-pass" type="password" placeholder="Mot de passe">
+    <button onclick="login()">Se connecter</button>
+
+    <h2>Inscrire mon association</h2>
+    <input id="r-name" placeholder="Nom de l'association">
+    <textarea id="r-desc" placeholder="Description"></textarea>
+    <input id="r-contact" placeholder="Contact">
+    <input id="r-email" type="email" placeholder="E-mail">
+    <input id="r-pass" type="password" placeholder="Mot de passe (8 caractères min.)">
+    <button onclick="register()">S'inscrire</button>
+  </section>
+
+  <section id="app" hidden>
+    <p>Connecté en tant que <strong id="role"></strong>.
+      <a href="#" onclick="logout()">Déconnexion</a></p>
+    <div id="admin" hidden>
+      <h2>Inscriptions en attente</h2>
+      <div id="pending"></div>
+    </div>
+  </section>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const say = (t) => ($('msg').textContent = t);
+
+    async function api(url, body) {
+      const res = await fetch(url, {
+        method: body ? 'POST' : 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      return data;
+    }
+
+    async function register() {
+      try {
+        const d = await api('/api/register', {
+          associationName: $('r-name').value, description: $('r-desc').value,
+          contact: $('r-contact').value, email: $('r-email').value, password: $('r-pass').value,
+        });
+        say(d.message);
+      } catch (e) { say(e.message); }
+    }
+
+    async function login() {
+      try {
+        await api('/api/login', { email: $('l-email').value, password: $('l-pass').value });
+        say(''); show();
+      } catch (e) { say(e.message); }
+    }
+
+    async function logout() { await api('/api/logout', {}); location.reload(); }
+
+    async function decide(id, action) {
+      await api(`/api/admin/associations/${id}/${action}`, {});
+      loadPending();
+    }
+
+    async function loadPending() {
+      const list = await api('/api/admin/pending');
+      $('pending').innerHTML = list.length ? '' : '<p>Aucune inscription en attente.</p>';
+      list.forEach((a) => {
+        const div = document.createElement('div');
+        div.className = 'pending';
+        const title = document.createElement('strong');
+        title.textContent = `${a.name} (${a.email})`;
+        const ok = document.createElement('button');
+        ok.textContent = 'Valider';
+        ok.onclick = () => decide(a.id, 'approve');
+        const no = document.createElement('button');
+        no.textContent = 'Refuser';
+        no.onclick = () => decide(a.id, 'reject');
+        div.append(title, document.createElement('br'), ok, no);
+        $('pending').append(div);
+      });
+    }
+
+    async function show() {
+      try {
+        const me = await api('/api/me');
+        $('auth').hidden = true; $('app').hidden = false;
+        $('role').textContent = me.role;
+        if (me.role === 'admin') { $('admin').hidden = false; loadPending(); }
+      } catch { /* pas connecté */ }
+    }
+    show();
+  </script>
+</body>
+</html>
